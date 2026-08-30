@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Disparador automático</title>
+<style>
+  :root{
+    --bg:#0b0d0a;
+    --panel:#14170f;
+    --line:#2b2f22;
+    --text:#e8e9dd;
+    --muted:#8a8f76;
+    --accent:#c7ff4d;
+    --danger:#ff6a4d;
+    --mono: 'Courier New', ui-monospace, monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:var(--mono); -webkit-tap-highlight-color:transparent;}
+  body{
+    min-height:100vh;
+    display:flex;flex-direction:column;
+    padding:14px;
+    gap:12px;
+  }
+  header{
+    display:flex;justify-content:space-between;align-items:baseline;
+    border-bottom:1px solid var(--line);
+    padding-bottom:10px;
+  }
+  header h1{
+    font-size:14px;letter-spacing:.14em;text-transform:uppercase;
+    margin:0;color:var(--muted);font-weight:600;
+  }
+  #clock{font-size:14px;color:var(--accent);letter-spacing:.05em;}
+
+  .viewfinder{
+    position:relative;
+    background:#000;
+    border:1px solid var(--line);
+    border-radius:2px;
+    overflow:hidden;
+    aspect-ratio: 3/4;
+    max-height:52vh;
+  }
+  video{width:100%;height:100%;object-fit:cover;display:block;}
+  .frame-corners span{
+    position:absolute;width:16px;height:16px;
+    border-color:var(--accent);border-style:solid;opacity:.7;
+  }
+  .fc-tl{top:8px;left:8px;border-width:1px 0 0 1px;}
+  .fc-tr{top:8px;right:8px;border-width:1px 1px 0 0;}
+  .fc-bl{bottom:8px;left:8px;border-width:0 0 1px 1px;}
+  .fc-br{bottom:8px;right:8px;border-width:0 1px 1px 0;}
+
+  .rec-badge{
+    position:absolute;top:10px;left:50%;transform:translateX(-50%);
+    display:flex;align-items:center;gap:6px;
+    background:rgba(0,0,0,.55);
+    padding:4px 10px;border-radius:20px;
+    font-size:11px;letter-spacing:.1em;color:var(--danger);
+    opacity:0;transition:opacity .2s;
+  }
+  .rec-badge.on{opacity:1;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--danger);
+    animation:pulse 1s infinite;}
+  @keyframes pulse{50%{opacity:.25;}}
+
+  .flash{
+    position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;
+  }
+  .flash.go{animation:flashfx .28s ease-out;}
+  @keyframes flashfx{0%{opacity:.9;}100%{opacity:0;}}
+
+  .countdown-ring{
+    position:absolute;bottom:10px;right:10px;
+    width:44px;height:44px;
+    display:none;
+  }
+  .countdown-ring svg{transform:rotate(-90deg);}
+  .countdown-ring circle{fill:none;stroke-width:3;}
+  .ring-bg{stroke:rgba(255,255,255,.15);}
+  .ring-fg{stroke:var(--accent);stroke-linecap:round;
+    transition:stroke-dashoffset .1s linear;}
+  .countdown-num{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:13px;color:var(--accent);
+  }
+
+  .config{
+    background:var(--panel);
+    border:1px solid var(--line);
+    padding:10px 12px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .config label{
+    font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  }
+  select{
+    font-family:var(--mono);
+    font-size:13px;
+    background:var(--bg);
+    color:var(--text);
+    border:1px solid var(--line);
+    padding:10px;
+    border-radius:2px;
+    width:100%;
+  }
+
+  .controls{
+    display:flex;gap:10px;
+  }
+  button{
+    flex:1;
+    font-family:var(--mono);
+    font-size:13px;letter-spacing:.08em;text-transform:uppercase;
+    padding:14px 10px;
+    border-radius:2px;
+    border:1px solid var(--line);
+    background:var(--panel);
+    color:var(--text);
+    cursor:pointer;
+  }
+  button:active{transform:translateY(1px);}
+  #startBtn{background:var(--accent);color:#0b0d0a;border-color:var(--accent);font-weight:700;}
+  #startBtn.stop{background:var(--danger);border-color:var(--danger);color:#1a0b06;}
+  button:disabled{opacity:.4;}
+
+  .status-line{
+    display:flex;justify-content:space-between;
+    font-size:11px;color:var(--muted);letter-spacing:.05em;
+    padding:0 2px;
+  }
+  .status-line b{color:var(--accent);font-weight:600;}
+
+  .note{
+    font-size:10.5px;color:var(--muted);
+    line-height:1.5;
+    border-top:1px solid var(--line);
+    padding-top:10px;
+  }
+  canvas{display:none;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Disparador</h1>
+  <div id="clock">--:--:--</div>
+</header>
+
+<div class="viewfinder" id="viewfinder">
+  <video id="video" autoplay playsinline muted></video>
+  <div class="frame-corners">
+    <span class="fc-tl"></span><span class="fc-tr"></span>
+    <span class="fc-bl"></span><span class="fc-br"></span>
+  </div>
+  <div class="rec-badge" id="recBadge"><span class="dot"></span>DISPARANDO</div>
+  <div class="flash" id="flash"></div>
+  <div class="countdown-ring" id="ring">
+    <svg width="44" height="44">
+      <circle class="ring-bg" cx="22" cy="22" r="18"></circle>
+      <circle class="ring-fg" id="ringFg" cx="22" cy="22" r="18"
+        stroke-dasharray="113" stroke-dashoffset="0"></circle>
+    </svg>
+    <div class="countdown-num" id="ringNum">5</div>
+  </div>
+</div>
+
+<div class="config">
+  <label for="rateSelect">Cadencia</label>
+  <select id="rateSelect">
+    <option value="333">3 fotos por segundo</option>
+    <option value="500">2 fotos por segundo</option>
+    <option value="1000">1 foto por segundo</option>
+    <option value="2000">1 foto cada 2 segundos</option>
+    <option value="3000">1 foto cada 3 segundos</option>
+    <option value="5000" selected>1 foto cada 5 segundos</option>
+    <option value="10000">1 foto cada 10 segundos</option>
+    <option value="30000">1 foto cada 30 segundos</option>
+    <option value="60000">1 foto cada minuto</option>
+  </select>
+</div>
+
+<div class="status-line">
+  <span>Fotos: <b id="shotCount">0</b> / 200</span>
+  <span id="permStatus">Esperando cámara…</span>
+</div>
+
+<div class="controls">
+  <button id="startBtn" disabled>Iniciar</button>
+  <button id="switchBtn">Cámara</button>
+</div>
+
+<p class="note">
+  Cada foto se descarga automáticamente en cuanto se captura, en máxima resolución disponible (hasta 4K). Se guardan en la carpeta <b>Descargas/temporizador</b> de tu navegador — en iPhone, si Safari no crea la subcarpeta, aparecerán en Descargas con el prefijo "temporizador_". Nada se conserva en esta página: al cerrarla no se pierde nada porque ya está todo descargado. Límite de seguridad: 200 fotos por sesión.
+</p>
+
+<canvas id="canvas"></canvas>
+
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const startBtn = document.getElementById('startBtn');
+const switchBtn = document.getElementById('switchBtn');
+const rateSelect = document.getElementById('rateSelect');
+const shotCountEl = document.getElementById('shotCount');
+const permStatus = document.getElementById('permStatus');
+const recBadge = document.getElementById('recBadge');
+const flashEl = document.getElementById('flash');
+const clockEl = document.getElementById('clock');
+const ring = document.getElementById('ring');
+const ringFg = document.getElementById('ringFg');
+const ringNum = document.getElementById('ringNum');
+
+const MAX_SHOTS = 200;
+const RING_CIRC = 113;
+
+let stream = null;
+let facingMode = 'environment';
+let running = false;
+let intervalHandle = null;
+let tickHandle = null;
+let shotCount = 0;
+let msLeft = 5000;
+let intervalMs = 5000;
+
+function tickClock(){
+  clockEl.textContent = new Date().toLocaleTimeString('es-ES');
+}
+setInterval(tickClock, 1000);
+tickClock();
+
+async function startCamera(){
+  permStatus.textContent = 'Solicitando permiso…';
+  try{
+    if(stream) stream.getTracks().forEach(t=>t.stop());
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode,
+        width:{ ideal: 3840 },
+        height:{ ideal: 2160 }
+      },
+      audio:false
+    });
+    video.srcObject = stream;
+    permStatus.textContent = 'Cámara lista';
+    startBtn.disabled = false;
+  }catch(err){
+    permStatus.textContent = 'Sin acceso a la cámara';
+    startBtn.disabled = true;
+  }
+}
+
+function pad(n){ return n.toString().padStart(2,'0'); }
+
+function timestampName(){
+  const d = new Date();
+  return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}_${pad(d.getMilliseconds()).padEnd(3,'0')}`;
+}
+
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=> URL.revokeObjectURL(url), 4000);
+}
+
+function capture(){
+  if(shotCount >= MAX_SHOTS){
+    stopLoop();
+    permStatus.textContent = 'Límite de 200 fotos alcanzado';
+    return;
+  }
+  const w = video.videoWidth, h = video.videoHeight;
+  if(!w || !h) return;
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, w, h);
+
+  flashEl.classList.remove('go');
+  void flashEl.offsetWidth;
+  flashEl.classList.add('go');
+
+  canvas.toBlob((blob)=>{
+    if(!blob) return;
+    shotCount++;
+    shotCountEl.textContent = shotCount;
+    const name = `temporizador/temporizador_${timestampName()}.jpg`;
+    downloadBlob(blob, name);
+  }, 'image/jpeg', 0.95);
+}
+
+function updateRing(){
+  msLeft -= 100;
+  if(msLeft < 0) msLeft = intervalMs;
+  const frac = msLeft / intervalMs;
+  const secLeft = Math.ceil(msLeft/1000);
+  ringNum.textContent = intervalMs >= 1000 ? secLeft : '';
+  ringFg.setAttribute('stroke-dashoffset', (RING_CIRC * frac).toFixed(1));
+}
+
+function startLoop(){
+  intervalMs = parseInt(rateSelect.value, 10);
+  running = true;
+  startBtn.textContent = 'Detener';
+  startBtn.classList.add('stop');
+  recBadge.classList.add('on');
+  ring.style.display = intervalMs >= 1000 ? 'block' : 'none';
+  switchBtn.disabled = true;
+  rateSelect.disabled = true;
+  msLeft = intervalMs;
+
+  capture();
+  intervalHandle = setInterval(capture, intervalMs);
+  if(intervalMs >= 1000){
+    tickHandle = setInterval(updateRing, 100);
+  }
+}
+
+function stopLoop(){
+  running = false;
+  startBtn.textContent = 'Iniciar';
+  startBtn.classList.remove('stop');
+  recBadge.classList.remove('on');
+  ring.style.display = 'none';
+  switchBtn.disabled = false;
+  rateSelect.disabled = false;
+  clearInterval(intervalHandle);
+  clearInterval(tickHandle);
+}
+
+startBtn.addEventListener('click', ()=>{
+  if(running) stopLoop(); else startLoop();
+});
+
+switchBtn.addEventListener('click', ()=>{
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  startCamera();
+});
+
+startCamera();
+</script>
+</body>
+</html>
